@@ -1,0 +1,126 @@
+# game/views.py
+import json # Para parsear el request body
+from django.views.decorators.http import require_POST # Para asegurar que sea POST
+from django.views.decorators.csrf import ensure_csrf_cookie # Puede ayudar con CSRF
+
+from .models import Game
+from checkers_logic import Board, Move, ONGOING, P1_WINS, P2_WINS # Importa lo necesario
+# IMPORTANTE: Importa tu lógica de IA
+import checkers_ai 
+
+# ... (otras vistas: index, create_game, game_view) ...
+
+# Asegura que esta vista solo acepte POST y tenga CSRF
+@require_POST
+# @ensure_csrf_cookie # Descomenta si tienes problemas con CSRF a pesar del token
+def make_move(request, game_id):
+    game = get_object_or_404(Game, pk=game_id)
+    ai_thinking_flag = False # Para indicar al frontend si la IA va a pensar
+
+    # Verificar si el juego ya terminó
+    if game.status != ONGOING:
+        return JsonResponse({'success': False, 'error': 'El juego ya ha terminado.'}, status=400)
+
+    # Verificar si es el turno del jugador correcto (según el tipo)
+    is_player1_turn = game.current_turn == 1
+    is_player2_turn = game.current_turn == 2
+    
+    # Determinar si el jugador actual es humano
+    current_player_is_human = (is_player1_turn and game.player1_type == 'HUMAN') or \
+                              (is_player2_turn and game.player2_type == 'HUMAN')
+
+    if not current_player_is_human:
+         # Esto no debería pasar si el frontend funciona bien, pero es una salvaguarda
+         return JsonResponse({'success': False, 'error': 'No es el turno de un jugador humano.'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        start_row = int(data.get('start_row'))
+        start_col = int(data.get('start_col'))
+        end_row = int(data.get('end_row'))
+        end_col = int(data.get('end_col'))
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        return JsonResponse({'success': False, 'error': f'Datos inválidos: {e}'}, status=400)
+
+    # Crear instancia del tablero desde el estado guardado
+    current_board = Board(rows=len(game.board_state), cols=len(game.board_state[0]))
+    current_board.board = game.board_state # Cargar estado
+
+    # Obtener movimientos legales para el jugador actual
+    legal_moves = current_board.get_legal_moves(game.current_turn)
+
+    # Buscar el movimiento específico recibido entre los legales
+    received_move = None
+    for move in legal_moves:
+        # Comparamos solo inicio y fin. IMPORTANTE: Esto asume que no hay dos
+        # movimientos distintos (ej. saltos diferentes) que empiecen y terminen
+        # en las mismas casillas. Si eso es posible, la validación necesita ser más robusta.
+        if move.start_row == start_row and move.start_col == start_col and \
+           move.end_row == end_row and move.end_col == end_col:
+            received_move = move # Usamos el objeto Move completo por si tiene capturas
+            break
+
+    if received_move is None:
+        return JsonResponse({'success': False, 'error': 'Movimiento ilegal.'}, status=400)
+
+    # --- Movimiento Humano Válido ---
+    # Aplicar el movimiento
+    new_board_obj = current_board.apply_move(received_move)
+    game.board_state = new_board_obj.board # Actualizar estado
+    game.current_turn = 3 - game.current_turn # Cambiar turno (1->2, 2->1)
+
+    # Comprobar si el juego terminó después del movimiento humano
+    game.status = new_board_obj.check_game_over(game.current_turn) # Comprueba si el *nuevo* jugador puede moverse
+    
+    next_player_is_ai = False
+    if game.status == ONGOING:
+         # Verificar si el *siguiente* jugador es la IA
+         is_player1_next = game.current_turn == 1
+         is_player2_next = game.current_turn == 2
+         if (is_player1_next and game.player1_type == 'AI') or \
+            (is_player2_next and game.player2_type == 'AI'):
+             next_player_is_ai = True
+             ai_thinking_flag = True # Indicar al frontend
+
+
+    # Guardar estado parcial (después del humano, antes de la IA si aplica)
+    # Es útil guardar aquí por si la IA tarda mucho o falla
+    game.save() 
+
+    # --- Turno de la IA (si aplica y el juego continúa) ---
+    if next_player_is_ai:
+         print(f"Turno de la IA (Jugador {game.current_turn}). Profundidad: {8}") # Usa tu profundidad
+         # Crear tablero para la IA con el estado ACTUALIZADO
+         ai_board = Board(rows=len(game.board_state), cols=len(game.board_state[0]))
+         ai_board.board = game.board_state
+
+         ai_move = checkers_ai.find_best_move(ai_board, game.current_turn, depth=5) # Usa una profundidad razonable para la web (5-6)
+
+         if ai_move:
+             print(f"IA elige mover: {ai_move}")
+             final_board_obj = ai_board.apply_move(ai_move)
+             game.board_state = final_board_obj.board
+             game.current_turn = 3 - game.current_turn # Devolver turno al humano
+             # Comprobar estado del juego DESPUÉS del movimiento de la IA
+             game.status = final_board_obj.check_game_over(game.current_turn)
+             game.save() # Guardar el estado final después de la IA
+             ai_thinking_flag = False # La IA ya terminó
+         else:
+             # La IA no encontró movimiento (el juego debería haber terminado, pero por si acaso)
+             print(f"Advertencia: La IA (Jugador {3 - game.current_turn}) no encontró movimiento.")
+             # El estado del juego ya debería reflejar la victoria humana si la IA no tiene movs
+             # game.status = P1_WINS if game.current_turn == 2 else P2_WINS # Redundante si check_game_over funciona bien
+             # game.save()
+             pass # No hacer nada extra, el estado guardado antes del turno AI es el final
+
+
+    # Preparar respuesta JSON final
+    response_data = {
+        'success': True,
+        'board_state': game.board_state,
+        'current_turn': game.current_turn,
+        'status': game.status,
+        'status_text': game.get_status_display(), # Enviar texto también puede ser útil
+        'ai_thinking': ai_thinking_flag # Informar si la IA empezó a pensar (aunque podría haber terminado ya)
+    }
+    return JsonResponse(response_data)

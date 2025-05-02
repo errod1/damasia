@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Damas IA - Partida {% if game %}{{ game.id }}{% endif %}</title>
+    {% if game %}
+    {# Solo añadir el token CSRF si hay un juego (para la llamada AJAX de make_move) #}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    {% endif %}
+    {% load static %} {# Cargar static al principio #}
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
+        .container {
+            display: flex;
+            flex-wrap: wrap; /* Para responsiveness si es necesario */
+            min-height: 100vh;
+        }
+        .left-column {
+            flex: 1; /* Toma el espacio disponible */
+            min-width: 250px; /* Ancho mínimo */
+            max-width: 350px; /* Ancho máximo opcional */
+            padding: 20px;
+            background-color: #fff;
+            border-right: 1px solid #ddd;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        .right-column {
+            flex: 3; /* Toma más espacio */
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* Centra el tablero */
+            justify-content: center; /* Centra verticalmente si no hay mucho contenido */
+        }
+
+        /* Estilos del formulario (puedes reusar los anteriores) */
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        select, button { padding: 8px 12px; font-size: 16px; border-radius: 5px; width: 100%; box-sizing: border-box; }
+        button { margin-top: 10px; /* Estilos del botón */
+             display: inline-block; cursor: pointer; text-align: center; text-decoration: none;
+             outline: none; color: #fff; background-color: #4CAF50; border: none;
+             box-shadow: 0 5px #999;
+        }
+        button:hover {background-color: #3e8e41}
+        button:active { background-color: #3e8e41; box-shadow: 0 2px #666; transform: translateY(4px); }
+
+        /* Estilos del tablero y mensajes (reusar los de game_detail.html) */
+        .board { border-collapse: collapse; border: 2px solid black; margin-top: 20px; background-color: #fff; }
+        .board td { width: 50px; height: 50px; border: 1px solid #ccc; text-align: center; vertical-align: middle; font-size: 24px; position: relative; cursor: pointer; }
+        .square-dark { background-color: #769656; }
+        .square-light { background-color: #eeeed2; }
+        .piece { width: 80%; height: 80%; border-radius: 50%; position: absolute; top: 10%; left: 10%; box-sizing: border-box; border: 2px solid black; }
+        .p1.man { background-color: #B80000; }
+        .p1.king { background-color: #FF4C4C; border: 3px solid gold; }
+        .p2.man { background-color: #E0E0E0; }
+        .p2.king { background-color: #FFFFFF; border: 3px solid gold; }
+        .selected { outline: 3px solid #f0e68c; outline-offset: -3px; }
+        .valid-move { background-color: rgba(0, 255, 0, 0.3) !important; }
+        .info { margin-top: 15px; text-align: center; }
+        .message-area { margin-top: 15px; padding: 10px; min-height: 40px; border: 1px solid #eee; background-color: #f9f9f9; color: #333; width: 80%; max-width: 420px; text-align: center; box-sizing: border-box;}
+        .error { color: red; font-weight: bold; }
+        .thinking { color: blue; font-style: italic; }
+        .status-ongoing { color: blue; }
+        .status-win { color: green; font-weight: bold; }
+        .status-lose { color: red; font-weight: bold; }
+        .status-draw { color: orange; font-weight: bold; }
+
+        /* Placeholder cuando no hay juego */
+        .no-game-placeholder { color: #888; font-style: italic; }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="left-column">
+            <h1>Damas IA</h1>
+            <p>Configura una nueva partida:</p>
+
+            <form action="{% url 'game:create_game' %}" method="post">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="difficulty">Dificultad de la IA:</label>
+                    <select name="ai_depth" id="difficulty">
+                         {# Intenta preseleccionar la dificultad del juego actual si existe #}
+                         {% with current_depth=game.ai_search_depth|default:5 %}
+                        <option value="2" {% if current_depth == 2 %}selected{% endif %}>Fácil (Rápido)</option>
+                        <option value="4" {% if current_depth == 4 %}selected{% endif %}>Normal</option>
+                        <option value="5" {% if current_depth == 5 %}selected{% endif %}>Recomendado</option>
+                        <option value="6" {% if current_depth == 6 %}selected{% endif %}>Difícil</option>
+                        <option value="7" {% if current_depth == 7 %}selected{% endif %}>Muy Difícil (Lento)</option>
+                        {% endwith %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="moves_draw">Movidas para Tablas:</label>
+                    <select name="limit_draw" id="moves_draw">
+                         {# Intenta preseleccionar la dificultad del juego actual si existe #}
+                         {% with current_depth=game.ai_search_depth|default:5 %}
+                        <option value="10" selected>10  Fácil (Rápido)</option>
+                        <option value="40" >40 - Normal</option>
+                        <option value="80" >80 - Difícil</option>
+                        {% endwith %}
+                    </select>
+                </div>
+                <div class="form-group">
+                     <label>Modo:</label> Humano (Jugador 1) vs IA (Jugador 2)
+                </div>
+                <button type="submit">Iniciar Nueva Partida</button>
+            </form>
+            <hr style="margin: 20px 0;">
+            {# Aquí podrías añadir opciones para cargar juegos guardados, etc. #}
+            <p style="text-align:center; color: #777;">---</p>
+        </div>
+
+        <div class="right-column">
+            {% if game %}
+                {# --- Contenido del Juego (similar a game_detail.html) --- #}
+                <h1>Partida de Damas #{{ game.id }}</h1>
+
+                <div class="info">
+                    Turno del Jugador: <span id="current-turn">{{ game.current_turn }}</span>
+                    <br>
+                    Estado: <span id="game-status">
+                         {# Usamos la función JS getStatusHTML ahora que está definida #}
+                    </span>
+                     <br>
+                     Jugador 1: {{ game.get_player1_type_display }} | Jugador 2: {{ game.get_player2_type_display }}
+                     <br>
+                     Dificultad IA: {{ game.ai_search_depth }} | Progreso Empate: <span id="moves-progress">{{ game.moves_since_progress }}</span>/{{ MOVES_LIMIT_FOR_DRAW }}
+                </div>
+
+                <div id="message-area" class="message-area">Cargando...</div>
+                
+                <!-- DEBUG TEMPLATE: Game ID: {{ game.id }}. Checking board_data... -->
+                {% if board_data %}
+                <!-- DEBUG TEMPLATE: board_data EXISTS and is not empty. Length: {{ board_data|length }} -->    
+                <table class="board" id="checkers-board">
+                    {# Iterar sobre la nueva estructura board_data #}
+                    {% for row_list in board_data %}
+                    <tr data-row="{{ row_list.0.row }}"> {# Obtener fila del primer elemento #}
+                        {% for cell in row_list %}
+                            <td class="{% if cell.is_dark %}square-dark{% else %}square-light{% endif %}"
+                                data-row="{{ cell.row }}" data-col="{{ cell.col }}">
+                                {# --- DEBUGGING ACTUALIZADO --- #}
+                                <!-- R:{{ cell.row }} C:{{ cell.col }} Val:{{ cell.piece_val }} P1M:{{ P1_MAN }} -->
+                                {# --- FIN DEBUGGING --- #}
+                                <div class="piece-container">
+                                    {# Ahora compara cell.piece_val con las constantes #}
+                                    {% if cell.piece_val == P1_MAN %} <div class="piece p1 man" data-piece="p1man"></div>
+                                    {% elif cell.piece_val == P1_KING %} <div class="piece p1 king" data-piece="p1king"></div>
+                                    {% elif cell.piece_val == P2_MAN %} <div class="piece p2 man" data-piece="p2man"></div>
+                                    {% elif cell.piece_val == P2_KING %} <div class="piece p2 king" data-piece="p2king"></div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </table>
+                {% else %}
+                    <!-- DEBUG TEMPLATE: board_data IS MISSING or empty! -->
+                {% endif %}
+
+                {# Pasar datos al JavaScript (solo si hay juego) #}
+                <script>
+                    const GAME_ID = {{ game.id }};
+                    let CURRENT_TURN = {{ game.current_turn }};
+                    const PLAYER1_TYPE = "{{ game.player1_type }}";
+                    const PLAYER2_TYPE = "{{ game.player2_type }}";
+                    let GAME_STATUS = {{ game.status }};
+                    // Construye la URL de make_move dinámicamente
+                    const MAKE_MOVE_URL = `/game/${GAME_ID}/move/`; // Asumiendo la estructura /game/<id>/move/
+                    const P1_MAN = {{ P1_MAN }}; const P1_KING = {{ P1_KING }};
+                    const P2_MAN = {{ P2_MAN }}; const P2_KING = {{ P2_KING }};
+                    const ONGOING = {{ ONGOING }}; const DRAW = {{ DRAW }};
+                    let MOVES_SINCE_PROGRESS = {{ game.moves_since_progress }};
+                    const DRAW_LIMIT = {{ MOVES_LIMIT_FOR_DRAW }};
+
+                     // Llama a getStatusHTML al cargar para establecer el estado inicial
+                     document.addEventListener('DOMContentLoaded', () => {
+                       const gameStatusSpan = document.getElementById('game-status');
+                       if (gameStatusSpan) {
+                           gameStatusSpan.innerHTML = getStatusHTML(GAME_STATUS);
+                       }
+                     });
+                </script>
+                {# Cargar el script del juego (solo si hay juego) #}
+                <script src="{% static 'game/js/checkers.js' %}"></script>
+
+            {% else %}
+                {# --- Placeholder si no hay juego cargado --- #}
+                <div class="no-game-placeholder">
+                    <h2>¡Bienvenido!</h2>
+                    <p>Crea una nueva partida usando el panel de la izquierda para empezar a jugar.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+</body>
+</html>

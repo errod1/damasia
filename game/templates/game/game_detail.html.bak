@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Partida de Damas {{ game.id }}</title>
+    <meta name="csrf-token" content="{{ csrf_token }}"> <!-- Importante para AJAX POST -->
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center;}
+        .board { border-collapse: collapse; border: 2px solid black; margin-top: 20px; }
+        .board td {
+            width: 50px;
+            height: 50px;
+            border: 1px solid #ccc;
+            text-align: center;
+            vertical-align: middle;
+            font-size: 24px;
+            position: relative; /* Para posicionar las piezas */
+            /* ... (propiedades anteriores) ... */
+            cursor: pointer; /* Indica que las celdas son clickables */
+        }
+        .square-dark { background-color: #769656; /* Verde oscuro */ }
+        .square-light { background-color: #eeeed2; /* Beige claro */ }
+
+        .piece {
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            position: absolute;
+            top: 10%;
+            left: 10%;
+            box-sizing: border-box;
+            border: 2px solid black; /* Borde para todas */
+        }
+        .p1.man { background-color: #B80000; } /* Rojo oscuro para P1 */
+        .p1.king { background-color: #FF4C4C; border: 3px solid gold; } /* Rojo más claro + borde rey */
+        .p2.man { background-color: #E0E0E0; } /* Gris claro para P2 */
+        .p2.king { background-color: #FFFFFF; border: 3px solid gold; } /* Blanco + borde rey */
+
+        .info { margin-top: 15px; }
+        .status-ongoing { color: blue; }
+        .status-win { color: green; font-weight: bold; }
+        .status-lose { color: red; font-weight: bold; }
+        .selected {
+            outline: 3px solid #f0e68c; /* Khaki para resaltar pieza seleccionada */
+            outline-offset: -3px;
+        }
+        .valid-move {
+            background-color: rgba(0, 255, 0, 0.3) !important; /* Verde semitransparente */
+        }
+        .message-area {
+            margin-top: 15px;
+            padding: 10px;
+            min-height: 40px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        .error { color: red; font-weight: bold; }
+        .thinking { color: blue; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Partida de Damas #{{ game.id }}</h1>
+
+    <div class="info">
+        Turno del Jugador: <span id="current-turn">{{ game.current_turn }}</span>
+        <br>
+         <form action="{% url 'game:make_move' game_id=game.id %}" method="post" style="margin-top: 20px;">
+             {% csrf_token %}
+             <input type="hidden" name="dummy_data" value="test">
+             <button type="submit">Probar Enviar Movimiento (POST)</button>
+         </form>
+        Estado: <span id="game-status">
+            {% if game.status == 0 %} <span class="status-ongoing">{{ game.get_status_display }}</span>
+            {% elif game.status == 1 %} <span class="status-win">{{ game.get_status_display }}</span>
+            {% elif game.status == 2 %} <span class="status-win">{{ game.get_status_display }}</span>
+            {% else %} <span>{{ game.get_status_display }}</span>
+            {% endif %}
+        </span>
+         <br>
+         Jugador 1: {{ game.get_player1_type_display }} | Jugador 2: {{ game.get_player2_type_display }}
+    </div>
+
+    <div id="message-area" class="message-area">Selecciona una pieza para mover.</div>
+
+    <table class="board" id="checkers-board"> {# Añadido ID #}
+        {% for r in rows %}
+        <tr data-row="{{ r }}"> {# Añadido data-row a TR #}
+            {% for c in cols %}
+                {% with piece_val=board|slice:r|first|slice:c|first %} {# Renombrado a piece_val #}
+                {% with is_dark=r|add:c|divisibleby:2 %}
+                    <td class="{% if is_dark %}square-dark{% else %}square-light{% endif %}"
+                        data-row="{{ r }}" data-col="{{ c }}"> {# Añadido data-row/col a TD #}
+                        <div class="piece-container"> {# Contenedor para la pieza #}
+                        {% if piece_val == P1_MAN %}
+                            <div class="piece p1 man" data-piece="p1man"></div>
+                        {% elif piece_val == P1_KING %}
+                            <div class="piece p1 king" data-piece="p1king"></div>
+                        {% elif piece_val == P2_MAN %}
+                            <div class="piece p2 man" data-piece="p2man"></div>
+                        {% elif piece_val == P2_KING %}
+                            <div class="piece p2 king" data-piece="p2king"></div>
+                        {% endif %}
+                        </div>
+                    </td>
+                {% endwith %}
+                {% endwith %}
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </table>
+
+    <p><a href="{% url 'game:index' %}">Volver a la lista</a></p>
+
+    {# Pasar datos al JavaScript #}
+    <script>
+        const GAME_ID = {{ game.id }};
+        let CURRENT_TURN = {{ game.current_turn }};
+        const PLAYER1_TYPE = "{{ game.player1_type }}";
+        const PLAYER2_TYPE = "{{ game.player2_type }}";
+        let GAME_STATUS = {{ game.status }}; // Estado inicial
+        const MAKE_MOVE_URL = "{% url 'game:make_move' game_id=game.id %}";
+        const P1_MAN = {{ P1_MAN }};
+        const P1_KING = {{ P1_KING }};
+        const P2_MAN = {{ P2_MAN }};
+        const P2_KING = {{ P2_KING }};
+        const ONGOING = {{ ONGOING }}; // Usa la constante numérica
+    </script>
+    {# Enlazar el archivo JavaScript externo (mejor práctica) #}
+    {% load static %} {# Necesitas configurar static files si no lo has hecho #}
+    <script src="{% static 'game/js/checkers.js' %}"></script>
+
+</body>
+</html>
